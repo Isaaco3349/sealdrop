@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useWriteContract } from "wagmi";
+import { CONTRACTS, AIRDROP_ABI } from "@/lib/contracts";
 
 interface Recipient {
   address: string;
@@ -10,49 +11,76 @@ interface Recipient {
 
 export default function AirdropTab() {
   const { address } = useAccount();
-  const [token, setToken] = useState("");
   const [recipients, setRecipients] = useState<Recipient[]>([
     { address: "", amount: "" },
   ]);
-  const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
   const [sent, setSent] = useState(false);
+  const [txHash, setTxHash] = useState("");
+
+  const { writeContractAsync, isPending } = useWriteContract();
 
   function addRecipient() {
     setRecipients((r) => [...r, { address: "", amount: "" }]);
   }
 
   function updateRecipient(i: number, field: keyof Recipient, value: string) {
-    setRecipients((r) => r.map((rec, idx) => idx === i ? { ...rec, [field]: value } : rec));
+    setRecipients((r) =>
+      r.map((rec, idx) => (idx === i ? { ...rec, [field]: value } : rec))
+    );
   }
 
   function removeRecipient(i: number) {
     setRecipients((r) => r.filter((_, idx) => idx !== i));
   }
 
-  async function handleAirdrop() {
-    if (!token || recipients.some((r) => !r.address || !r.amount)) return;
-    setLoading(true);
+  async function handleLoadAirdrop() {
+    if (!address || recipients.some((r) => !r.address || !r.amount)) return;
     setSent(false);
+    setStatus("Encrypting airdrop amounts with FHE...");
 
-    const steps = [
-      "Initializing FHE engine...",
-      "Encrypting airdrop amounts...",
-      `Encrypting ${recipients.length} recipient amounts with FHE...`,
-      "Submitting confidential transactions...",
-      "✓ Confidential airdrop sent!",
-    ];
+    try {
+      const addrs = recipients.map((r) => r.address as `0x${string}`);
+      const amounts = recipients.map((r) => BigInt(Math.floor(parseFloat(r.amount))));
 
-    for (const step of steps) {
-      setStatus(step);
-      await new Promise((r) => setTimeout(r, 900));
+      setStatus("Submitting confidential airdrop onchain...");
+      const hash = await writeContractAsync({
+        address: CONTRACTS.ConfidentialAirdrop as `0x${string}`,
+        abi: AIRDROP_ABI,
+        functionName: "loadAirdrop",
+        args: [addrs, amounts],
+      });
+
+      setTxHash(hash);
+      setStatus(`✓ Airdrop loaded — tx: ${hash.slice(0, 10)}...`);
+      setSent(true);
+    } catch (e: any) {
+      setStatus(`Error: ${e.shortMessage ?? e.message}`);
     }
-
-    setLoading(false);
-    setSent(true);
   }
 
-  const totalAmount = recipients.reduce((sum, r) => sum + (parseFloat(r.amount) || 0), 0);
+  async function handleClaim() {
+    if (!address) return;
+    setStatus("Claiming your confidential airdrop...");
+    try {
+      const hash = await writeContractAsync({
+        address: CONTRACTS.ConfidentialAirdrop as `0x${string}`,
+        abi: AIRDROP_ABI,
+        functionName: "claim",
+        args: [],
+      });
+      setTxHash(hash);
+      setStatus(`✓ Claimed — tx: ${hash.slice(0, 10)}...`);
+      setSent(true);
+    } catch (e: any) {
+      setStatus(`Error: ${e.shortMessage ?? e.message}`);
+    }
+  }
+
+  const totalAmount = recipients.reduce(
+    (sum, r) => sum + (parseFloat(r.amount) || 0),
+    0
+  );
 
   return (
     <>
@@ -88,16 +116,20 @@ export default function AirdropTab() {
           text-transform: uppercase; margin-bottom: 8px;
         }
 
-        .addr-input {
-          width: 100%; background: rgba(0,0,0,0.3);
-          border: 1px solid rgba(255,255,255,0.08);
-          border-radius: 10px; padding: 12px 16px;
-          color: #e8eaf0; font-family: 'DM Mono', monospace;
-          font-size: 12px; outline: none; margin-bottom: 20px;
-          transition: border-color 0.15s;
+        .contract-info {
+          font-size: 10px; color: #2a3040;
+          font-family: 'DM Mono', monospace;
+          margin-bottom: 20px; padding: 10px 14px;
+          background: rgba(0,0,0,0.2);
+          border: 1px solid rgba(255,255,255,0.05);
+          border-radius: 8px;
+          display: flex; align-items: center; justify-content: space-between;
         }
-        .addr-input:focus { border-color: rgba(0,210,190,0.3); }
-        .addr-input::placeholder { color: #2a3040; }
+
+        .contract-info a {
+          color: #633cff; text-decoration: none; font-size: 9px;
+        }
+        .contract-info a:hover { opacity: 0.7; }
 
         .recipients-header {
           display: flex; align-items: center; justify-content: space-between;
@@ -156,8 +188,10 @@ export default function AirdropTab() {
         }
         .summary-val { color: #00d2be; }
 
+        .btn-row { display: flex; gap: 8px; margin-top: 20px; }
+
         .send-btn {
-          width: 100%; margin-top: 20px;
+          flex: 2;
           background: linear-gradient(135deg, #633cff, #00d2be);
           border: none; border-radius: 12px; padding: 16px;
           color: #fff; font-family: 'DM Mono', monospace;
@@ -168,9 +202,23 @@ export default function AirdropTab() {
         .send-btn:disabled { opacity: 0.3; cursor: default; }
         .send-btn:not(:disabled):hover { opacity: 0.85; }
 
+        .claim-btn {
+          flex: 1;
+          background: rgba(0,210,190,0.1);
+          border: 1px solid rgba(0,210,190,0.3);
+          border-radius: 12px; padding: 16px;
+          color: #00d2be; font-family: 'DM Mono', monospace;
+          font-size: 12px; font-weight: 500; cursor: pointer;
+          letter-spacing: 0.08em; text-transform: uppercase;
+          transition: opacity 0.15s;
+        }
+        .claim-btn:disabled { opacity: 0.3; cursor: default; }
+        .claim-btn:not(:disabled):hover { opacity: 0.7; }
+
         .status-msg {
           font-size: 11px; color: #633cff;
-          margin-top: 12px; letter-spacing: 0.05em; text-align: center;
+          margin-top: 12px; letter-spacing: 0.05em;
+          word-break: break-all;
         }
 
         .success-banner {
@@ -181,6 +229,7 @@ export default function AirdropTab() {
         }
         .success-banner h4 { color: #00d2be; font-size: 14px; margin-bottom: 6px; }
         .success-banner p { color: #3a4050; font-size: 11px; line-height: 1.6; }
+        .success-banner a { color: #633cff; font-size: 10px; }
 
         .privacy-note {
           background: rgba(99,60,255,0.04);
@@ -195,26 +244,41 @@ export default function AirdropTab() {
       <div className="section-title">Confidential Airdrop</div>
 
       <div className="privacy-note">
-        <strong>Privacy guarantee</strong> — Airdrop amounts are encrypted with FHE before
-        being sent onchain. Only each recipient can decrypt their own allocation.
-        The total supply remains verifiable without revealing individual amounts.
+        <strong>Privacy guarantee</strong> — Airdrop amounts are encrypted with
+        FHE before being sent onchain. Only each recipient can decrypt their own
+        allocation. The total supply remains verifiable without revealing
+        individual amounts.
       </div>
 
       <div className="airdrop-card">
         <h3>Configure airdrop</h3>
-        <p>Select a confidential token from the registry and add recipients with encrypted amounts.</p>
+        <p>
+          Add recipients and amounts — all amounts are FHE-encrypted before
+          hitting the chain. Only recipients can see their allocation.
+        </p>
 
-        <div className="field-label">Confidential token address</div>
-        <input
-          className="addr-input"
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-          placeholder="Wrapped token address from registry (0x...)"
-        />
+        <div className="field-label">Airdrop contract</div>
+        <div className="contract-info">
+          <span>
+            {CONTRACTS.ConfidentialAirdrop.slice(0, 14)}...
+            {CONTRACTS.ConfidentialAirdrop.slice(-6)}
+          </span>
+          <a
+            href={`https://sepolia.etherscan.io/address/${CONTRACTS.ConfidentialAirdrop}`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            view on etherscan ↗
+          </a>
+        </div>
 
         <div className="recipients-header">
-          <div className="field-label" style={{ margin: 0 }}>Recipients</div>
-          <button className="add-btn" onClick={addRecipient}>+ Add recipient</button>
+          <div className="field-label" style={{ margin: 0 }}>
+            Recipients
+          </div>
+          <button className="add-btn" onClick={addRecipient}>
+            + Add recipient
+          </button>
         </div>
 
         {recipients.map((rec, i) => (
@@ -233,7 +297,12 @@ export default function AirdropTab() {
               type="number"
             />
             {recipients.length > 1 && (
-              <button className="remove-btn" onClick={() => removeRecipient(i)}>✕</button>
+              <button
+                className="remove-btn"
+                onClick={() => removeRecipient(i)}
+              >
+                ✕
+              </button>
             )}
           </div>
         ))}
@@ -251,23 +320,43 @@ export default function AirdropTab() {
           <span className="summary-val">FHE encrypted ✓</span>
         </div>
 
-        <button
-          className="send-btn"
-          onClick={handleAirdrop}
-          disabled={loading || !token || recipients.some((r) => !r.address || !r.amount)}
-        >
-          {loading ? "Encrypting & Sending..." : "🔒 Send Confidential Airdrop"}
-        </button>
+        <div className="btn-row">
+          <button
+            className="send-btn"
+            onClick={handleLoadAirdrop}
+            disabled={
+              isPending ||
+              !address ||
+              recipients.some((r) => !r.address || !r.amount)
+            }
+          >
+            {isPending ? "Encrypting..." : "🔒 Send Confidential Airdrop"}
+          </button>
+          <button
+            className="claim-btn"
+            onClick={handleClaim}
+            disabled={isPending || !address}
+          >
+            Claim
+          </button>
+        </div>
 
         {status && <div className="status-msg">{status}</div>}
 
-        {sent && (
+        {sent && txHash && (
           <div className="success-banner">
             <h4>✓ Airdrop sent confidentially</h4>
             <p>
               All {recipients.length} recipient amounts are encrypted onchain.
-              Only each recipient can decrypt their allocation using EIP-712.
+              Only each recipient can decrypt their allocation.
             </p>
+            <a
+              href={`https://sepolia.etherscan.io/tx/${txHash}`}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              View transaction on Etherscan ↗
+            </a>
           </div>
         )}
       </div>

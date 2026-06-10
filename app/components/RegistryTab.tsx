@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount, usePublicClient } from "wagmi";
+import { useAccount, useWriteContract, useReadContract, useWaitForTransactionReceipt } from "wagmi";
+import { parseUnits } from "viem";
+import { CONTRACTS, WRAPPER_ABI, ERC20_ABI } from "@/lib/contracts";
 
 interface WrappedToken {
   original: string;
@@ -13,54 +15,90 @@ interface WrappedToken {
 
 export default function RegistryTab() {
   const { address } = useAccount();
-  const [tokenAddress, setTokenAddress] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [wrapAmount, setWrapAmount] = useState("");
   const [status, setStatus] = useState("");
-  const [registry, setRegistry] = useState<WrappedToken[]>([
+
+  const { writeContractAsync, isPending } = useWriteContract();
+
+  // Read mock token balance
+  const { data: tokenBalance } = useReadContract({
+    address: CONTRACTS.MockERC20 as `0x${string}`,
+    abi: ERC20_ABI,
+    functionName: "balanceOf",
+    args: [address!],
+    query: { enabled: !!address },
+  });
+
+  // Pre-seeded registry showing our deployed wrapper
+  const [registry] = useState<WrappedToken[]>([
     {
-      original: "0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238",
-      wrapped: "0x" + "a".repeat(40),
-      symbol: "cUSDC",
-      name: "Confidential USDC",
-      addedAt: Date.now() - 86400000,
-    },
-    {
-      original: "0x7b79995e5f793A07Bc00c21412e50Ecae098E7f9",
-      wrapped: "0x" + "b".repeat(40),
-      symbol: "cWETH",
-      name: "Confidential WETH",
-      addedAt: Date.now() - 3600000,
+      original: CONTRACTS.MockERC20,
+      wrapped: CONTRACTS.ConfidentialWrapper,
+      symbol: "ctUSDC",
+      name: "Confidential tUSDC",
+      addedAt: Date.now(),
     },
   ]);
 
-  async function handleWrap() {
-    if (!tokenAddress || !address) return;
-    setLoading(true);
-    setStatus("Initializing FHE engine...");
-
+  async function handleMint() {
+    if (!address) return;
+    setStatus("Minting test tokens...");
     try {
-      // Simulate FHE wrapping flow
-      await new Promise((r) => setTimeout(r, 1000));
-      setStatus("Generating encryption keys...");
-      await new Promise((r) => setTimeout(r, 800));
-      setStatus("Deploying confidential wrapper...");
-      await new Promise((r) => setTimeout(r, 1200));
+      const hash = await writeContractAsync({
+        address: CONTRACTS.MockERC20 as `0x${string}`,
+        abi: ERC20_ABI,
+        functionName: "mint",
+        args: [address, parseUnits("1000", 18)],
+      });
+      setStatus(`✓ Minted 1000 tUSDC — tx: ${hash.slice(0, 10)}...`);
+    } catch (e: any) {
+      setStatus(`Error: ${e.shortMessage ?? e.message}`);
+    }
+  }
 
-      const newToken: WrappedToken = {
-        original: tokenAddress,
-        wrapped: "0x" + Math.random().toString(16).slice(2).padEnd(40, "0"),
-        symbol: "c" + tokenAddress.slice(2, 6).toUpperCase(),
-        name: "Confidential " + tokenAddress.slice(0, 8) + "...",
-        addedAt: Date.now(),
-      };
+  async function handleWrap() {
+    if (!address || !wrapAmount) return;
+    setStatus("Step 1/2 — Approving tokens...");
+    try {
+      // Step 1: Approve
+      const approveTx = await writeContractAsync({
+        address: CONTRACTS.MockERC20 as `0x${string}`,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [CONTRACTS.ConfidentialWrapper as `0x${string}`, parseUnits(wrapAmount, 18)],
+      });
+      setStatus(`Approval sent — waiting for confirmation...`);
+      await new Promise((r) => setTimeout(r, 4000));
 
-      setRegistry((r) => [newToken, ...r]);
-      setStatus("✓ Confidential wrapper deployed!");
-      setTokenAddress("");
-    } catch {
-      setStatus("Error: deployment failed");
-    } finally {
-      setLoading(false);
+      // Step 2: Wrap
+      setStatus("Step 2/2 — Wrapping into confidential token...");
+      const wrapTx = await writeContractAsync({
+        address: CONTRACTS.ConfidentialWrapper as `0x${string}`,
+        abi: WRAPPER_ABI,
+        functionName: "wrap",
+        args: [BigInt(wrapAmount)],
+      });
+      setStatus(`✓ Wrapped ${wrapAmount} tUSDC → ctUSDC — tx: ${wrapTx.slice(0, 10)}...`);
+      setWrapAmount("");
+    } catch (e: any) {
+      setStatus(`Error: ${e.shortMessage ?? e.message}`);
+    }
+  }
+
+  async function handleUnwrap() {
+    if (!address || !wrapAmount) return;
+    setStatus("Unwrapping confidential tokens...");
+    try {
+      const hash = await writeContractAsync({
+        address: CONTRACTS.ConfidentialWrapper as `0x${string}`,
+        abi: WRAPPER_ABI,
+        functionName: "unwrap",
+        args: [BigInt(wrapAmount)],
+      });
+      setStatus(`✓ Unwrapped ${wrapAmount} ctUSDC → tUSDC — tx: ${hash.slice(0, 10)}...`);
+      setWrapAmount("");
+    } catch (e: any) {
+      setStatus(`Error: ${e.shortMessage ?? e.message}`);
     }
   }
 
@@ -94,8 +132,14 @@ export default function RegistryTab() {
           line-height: 1.6;
         }
 
+        .balance-row {
+          font-size: 11px; color: #3a4050; margin-bottom: 16px;
+          display: flex; align-items: center; gap: 8px;
+        }
+        .balance-val { color: #00d2be; font-family: 'DM Mono', monospace; }
+
         .input-row {
-          display: flex; gap: 10px;
+          display: flex; gap: 10px; margin-bottom: 10px;
         }
 
         .addr-input {
@@ -109,6 +153,8 @@ export default function RegistryTab() {
         .addr-input:focus { border-color: rgba(99,60,255,0.4); }
         .addr-input::placeholder { color: #2a3040; }
 
+        .btn-row { display: flex; gap: 8px; }
+
         .wrap-btn {
           background: linear-gradient(135deg, #633cff, #00d2be);
           border: none; border-radius: 10px; padding: 12px 24px;
@@ -120,9 +166,32 @@ export default function RegistryTab() {
         .wrap-btn:disabled { opacity: 0.4; cursor: default; }
         .wrap-btn:not(:disabled):hover { opacity: 0.85; }
 
+        .unwrap-btn {
+          background: rgba(99,60,255,0.15);
+          border: 1px solid rgba(99,60,255,0.3);
+          border-radius: 10px; padding: 12px 24px;
+          color: #633cff; font-family: 'DM Mono', monospace;
+          font-size: 11px; font-weight: 500; cursor: pointer;
+          white-space: nowrap; letter-spacing: 0.05em;
+          transition: opacity 0.15s;
+        }
+        .unwrap-btn:disabled { opacity: 0.4; cursor: default; }
+        .unwrap-btn:not(:disabled):hover { opacity: 0.7; }
+
+        .mint-btn {
+          background: transparent;
+          border: 1px solid rgba(0,210,190,0.3);
+          border-radius: 8px; padding: 8px 16px;
+          color: #00d2be; font-family: 'DM Mono', monospace;
+          font-size: 10px; cursor: pointer;
+          transition: opacity 0.15s;
+        }
+        .mint-btn:hover { opacity: 0.7; }
+
         .status-msg {
           font-size: 11px; color: #633cff;
           margin-top: 12px; letter-spacing: 0.05em;
+          word-break: break-all;
         }
 
         .registry-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 48px; }
@@ -161,6 +230,15 @@ export default function RegistryTab() {
           margin-left: 8px;
         }
 
+        .live-tag {
+          font-size: 8px; padding: 2px 7px;
+          background: rgba(0,255,100,0.1);
+          border: 1px solid rgba(0,255,100,0.2);
+          border-radius: 3px; color: #00ff64;
+          letter-spacing: 0.1em; text-transform: uppercase;
+          margin-left: 4px;
+        }
+
         .eip-note {
           background: rgba(0,210,190,0.04);
           border: 1px solid rgba(0,210,190,0.12);
@@ -169,25 +247,50 @@ export default function RegistryTab() {
           font-size: 11px; color: #3a4050; line-height: 1.7;
         }
         .eip-note strong { color: #00d2be; }
+
+        .etherscan-link {
+          font-size: 9px; color: #2a3040;
+          text-decoration: none; letter-spacing: 0.05em;
+        }
+        .etherscan-link:hover { color: #633cff; }
       `}</style>
 
       <div className="section-title">Wrapper Registry</div>
 
       <div className="wrap-card">
-        <h3>Wrap an ERC20 token</h3>
+        <h3>Wrap / Unwrap tUSDC</h3>
         <p>
-          Deploy a confidential wrapper for any ERC20. Balances are encrypted using FHE —
-          only the owner can decrypt via EIP-712 signed request.
+          Convert tUSDC into confidential ctUSDC using FHE encryption on Sepolia.
+          Balances are encrypted — only you can see your amount.
         </p>
+
+        {address && (
+          <div className="balance-row">
+            tUSDC balance:&nbsp;
+            <span className="balance-val">
+              {tokenBalance ? (Number(tokenBalance) / 1e18).toFixed(2) : "0.00"}
+            </span>
+            <button className="mint-btn" onClick={handleMint} disabled={isPending}>
+              + Mint 1000
+            </button>
+          </div>
+        )}
+
         <div className="input-row">
           <input
             className="addr-input"
-            value={tokenAddress}
-            onChange={(e) => setTokenAddress(e.target.value)}
-            placeholder="ERC20 token address (0x...)"
+            value={wrapAmount}
+            onChange={(e) => setWrapAmount(e.target.value)}
+            placeholder="Amount to wrap / unwrap"
+            type="number"
           />
-          <button className="wrap-btn" onClick={handleWrap} disabled={loading || !tokenAddress}>
-            {loading ? "Wrapping..." : "Wrap →"}
+        </div>
+        <div className="btn-row">
+          <button className="wrap-btn" onClick={handleWrap} disabled={isPending || !wrapAmount || !address}>
+            {isPending ? "Pending..." : "Wrap →"}
+          </button>
+          <button className="unwrap-btn" onClick={handleUnwrap} disabled={isPending || !wrapAmount || !address}>
+            ← Unwrap
           </button>
         </div>
         {status && <div className="status-msg">{status}</div>}
@@ -210,6 +313,7 @@ export default function RegistryTab() {
                 <div className="token-symbol">
                   {token.symbol}
                   <span className="fhe-tag">FHE</span>
+                  <span className="live-tag">LIVE</span>
                 </div>
                 <div className="token-name">{token.name}</div>
               </div>
@@ -218,9 +322,14 @@ export default function RegistryTab() {
               <div className="token-addr">
                 {token.wrapped.slice(0, 10)}...{token.wrapped.slice(-6)}
               </div>
-              <div className="token-time">
-                {new Date(token.addedAt).toLocaleTimeString()}
-              </div>
+              <a
+                className="etherscan-link"
+                href={`https://sepolia.etherscan.io/address/${token.wrapped}`}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                view on etherscan ↗
+              </a>
             </div>
           </div>
         ))}
