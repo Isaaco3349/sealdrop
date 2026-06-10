@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAccount, useWriteContract, useReadContract, useWaitForTransactionReceipt } from "wagmi";
+import { useAccount, useWriteContract, useReadContract } from "wagmi";
 import { parseUnits } from "viem";
 import { CONTRACTS, WRAPPER_ABI, ERC20_ABI } from "@/lib/contracts";
 
@@ -21,7 +21,7 @@ export default function RegistryTab() {
   const { writeContractAsync, isPending } = useWriteContract();
 
   // Read mock token balance
-  const { data: tokenBalance } = useReadContract({
+  const { data: tokenBalance, refetch: refetchBalance } = useReadContract({
     address: CONTRACTS.MockERC20 as `0x${string}`,
     abi: ERC20_ABI,
     functionName: "balanceOf",
@@ -49,8 +49,10 @@ export default function RegistryTab() {
         abi: ERC20_ABI,
         functionName: "mint",
         args: [address, parseUnits("1000", 18)],
+        gas: 100000n,
       });
       setStatus(`✓ Minted 1000 tUSDC — tx: ${hash.slice(0, 10)}...`);
+      setTimeout(() => refetchBalance(), 5000);
     } catch (e: any) {
       setStatus(`Error: ${e.shortMessage ?? e.message}`);
     }
@@ -60,26 +62,34 @@ export default function RegistryTab() {
     if (!address || !wrapAmount) return;
     setStatus("Step 1/2 — Approving tokens...");
     try {
+      // The contract wrap() takes uint64 (raw small number, not 18-decimal)
+      // But the ERC20 approve needs the 18-decimal amount
+      const rawAmount = BigInt(wrapAmount); // e.g. 100n
+      const scaledAmount = parseUnits(wrapAmount, 18); // for approve
+
       // Step 1: Approve
       const approveTx = await writeContractAsync({
         address: CONTRACTS.MockERC20 as `0x${string}`,
         abi: ERC20_ABI,
         functionName: "approve",
-        args: [CONTRACTS.ConfidentialWrapper as `0x${string}`, parseUnits(wrapAmount, 18)],
+        args: [CONTRACTS.ConfidentialWrapper as `0x${string}`, scaledAmount],
+        gas: 100000n,
       });
-      setStatus(`Approval sent — waiting for confirmation...`);
-      await new Promise((r) => setTimeout(r, 4000));
+      setStatus(`Approval sent (${approveTx.slice(0, 10)}...) — waiting...`);
+      await new Promise((r) => setTimeout(r, 6000));
 
-      // Step 2: Wrap
+      // Step 2: Wrap — passes raw uint64 to contract
       setStatus("Step 2/2 — Wrapping into confidential token...");
       const wrapTx = await writeContractAsync({
         address: CONTRACTS.ConfidentialWrapper as `0x${string}`,
         abi: WRAPPER_ABI,
         functionName: "wrap",
-        args: [BigInt(wrapAmount)],
+        args: [rawAmount],
+        gas: 500000n,
       });
       setStatus(`✓ Wrapped ${wrapAmount} tUSDC → ctUSDC — tx: ${wrapTx.slice(0, 10)}...`);
       setWrapAmount("");
+      setTimeout(() => refetchBalance(), 5000);
     } catch (e: any) {
       setStatus(`Error: ${e.shortMessage ?? e.message}`);
     }
@@ -94,9 +104,11 @@ export default function RegistryTab() {
         abi: WRAPPER_ABI,
         functionName: "unwrap",
         args: [BigInt(wrapAmount)],
+        gas: 500000n,
       });
       setStatus(`✓ Unwrapped ${wrapAmount} ctUSDC → tUSDC — tx: ${hash.slice(0, 10)}...`);
       setWrapAmount("");
+      setTimeout(() => refetchBalance(), 5000);
     } catch (e: any) {
       setStatus(`Error: ${e.shortMessage ?? e.message}`);
     }
@@ -281,7 +293,7 @@ export default function RegistryTab() {
             className="addr-input"
             value={wrapAmount}
             onChange={(e) => setWrapAmount(e.target.value)}
-            placeholder="Amount to wrap / unwrap"
+            placeholder="Amount to wrap / unwrap (e.g. 100)"
             type="number"
           />
         </div>
