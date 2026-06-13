@@ -1,5 +1,5 @@
 {
-  "SealDropModule#MockERC20": "0xD7FfFbD266B90580021108A6728431df5D6CF4AF",
-  "SealDropModule#ConfidentialWrapper": "0x714819599d37151470aC190C59A11157f489DA77",
-  "SealDropModule#ConfidentialAirdrop": "0xa7108F7Bd6bB6e0219C605164D389aD83EC2Df0f"
+  "SealDropModule#MockERC20": "0x4434005c017a214574417e3045e4CEb64f93A025",
+  "SealDropModule#ConfidentialWrapper": "0x001699daB4F9c25CD857330248d0772C18050684",
+  "SealDropModule#ConfidentialAirdrop": "0xcf1bc05C91d87A99f96dD38D3b38da3412F84294"
 }
