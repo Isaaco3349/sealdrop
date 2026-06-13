@@ -83,7 +83,7 @@ export default function RegistryTab() {
         abi: WRAPPER_ABI,
         functionName: "wrap",
         args: [BigInt(wrapAmount)],
-        gas: BigInt(300000),
+        gas: BigInt(100000),
       });
       setStatus(`✓ Wrapped ${wrapAmount} tUSDC → ctUSDC — tx: ${wrapTx.slice(0, 10)}...`);
       setWrapAmount("");
