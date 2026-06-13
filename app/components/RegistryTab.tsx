@@ -49,7 +49,6 @@ export default function RegistryTab() {
         abi: ERC20_ABI,
         functionName: "mint",
         args: [address, parseUnits("1000", 18)],
-        gas: 100000n,
       });
       setStatus(`✓ Minted 1000 tUSDC — tx: ${hash.slice(0, 10)}...`);
       setTimeout(() => refetchBalance(), 5000);
@@ -73,7 +72,6 @@ export default function RegistryTab() {
         abi: ERC20_ABI,
         functionName: "approve",
         args: [CONTRACTS.ConfidentialWrapper as `0x${string}`, scaledAmount],
-        gas: 100000n,
       });
       setStatus(`Approval sent (${approveTx.slice(0, 10)}...) — waiting...`);
       await new Promise((r) => setTimeout(r, 6000));
@@ -85,7 +83,6 @@ export default function RegistryTab() {
         abi: WRAPPER_ABI,
         functionName: "wrap",
         args: [rawAmount],
-        gas: 500000n,
       });
       setStatus(`✓ Wrapped ${wrapAmount} tUSDC → ctUSDC — tx: ${wrapTx.slice(0, 10)}...`);
       setWrapAmount("");
@@ -104,7 +101,6 @@ export default function RegistryTab() {
         abi: WRAPPER_ABI,
         functionName: "unwrap",
         args: [BigInt(wrapAmount)],
-        gas: 500000n,
       });
       setStatus(`✓ Unwrapped ${wrapAmount} ctUSDC → tUSDC — tx: ${hash.slice(0, 10)}...`);
       setWrapAmount("");
