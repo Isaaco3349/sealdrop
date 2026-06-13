@@ -102,6 +102,7 @@ export default function RegistryTab() {
         abi: WRAPPER_ABI,
         functionName: "unwrap",
         args: [BigInt(wrapAmount)],
+        gas: BigInt(100000),
       });
       setStatus(`✓ Unwrapped ${wrapAmount} ctUSDC → tUSDC — tx: ${hash.slice(0, 10)}...`);
       setWrapAmount("");
