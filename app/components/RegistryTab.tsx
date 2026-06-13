@@ -82,7 +82,8 @@ export default function RegistryTab() {
         address: CONTRACTS.ConfidentialWrapper as `0x${string}`,
         abi: WRAPPER_ABI,
         functionName: "wrap",
-        args: [rawAmount],
+        args: [BigInt(wrapAmount)],
+        gas: BigInt(300000),
       });
       setStatus(`✓ Wrapped ${wrapAmount} tUSDC → ctUSDC — tx: ${wrapTx.slice(0, 10)}...`);
       setWrapAmount("");
