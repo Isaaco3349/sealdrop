@@ -49,6 +49,7 @@ export default function AirdropTab() {
         abi: AIRDROP_ABI,
         functionName: "loadAirdrop",
         args: [addrs, amounts],
+        gas: BigInt(300000),
       });
 
       setTxHash(hash);
