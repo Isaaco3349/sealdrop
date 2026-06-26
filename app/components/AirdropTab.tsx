@@ -69,6 +69,7 @@ export default function AirdropTab() {
         abi: AIRDROP_ABI,
         functionName: "claim",
         args: [],
+        gas: BigInt(100000),
       });
       setTxHash(hash);
       setStatus(`✓ Claimed — tx: ${hash.slice(0, 10)}...`);
